@@ -2,6 +2,8 @@
 #include <net/interfaces>
 #include <cstdio>
 
+static std::map<net::tcp::Connection_ptr, int> conn_timers;
+
 void Service::start()
 {
   auto& inet = net::Interfaces::get(0);
@@ -12,7 +14,15 @@ void Service::start()
   server.on_connect(
   [port] (auto conn)
   {
-    auto* buffer = new std::vector<uint8_t>;
+    const int t = Timers::oneshot(std::chrono::seconds(5),
+        [conn] (int) {
+          printf("Connection that is not closed yet:\n%s\n",
+                  conn->to_string().c_str());
+        });
+    conn_timers[conn] = t;
+    //auto* buffer = new std::vector<uint8_t>;
+    auto* buffer = new std::deque<uint8_t>;
+    //buffer->reserve(38*1024*1024);
     // retrieve binary
     conn->on_read(9000,
     [conn, buffer] (auto buf)
@@ -20,8 +30,12 @@ void Service::start()
       buffer->insert(buffer->end(), buf->begin(), buf->end());
     })
     .on_close(
-    [buffer] () {
-      printf("* Blob size: %zu b  at %p\n", buffer->size(), buffer->data());
+    [conn, buffer] () {
+      const int t = conn_timers[conn];
+      Timers::stop(t);
+      conn_timers.erase(conn);
+      //printf("* Blob size: %zu b  at %p\n", buffer->size(), buffer->data());
+      printf("%zu\n", buffer->size());
       delete buffer;
     });
   });
